@@ -1,20 +1,14 @@
 import sqlite3
 import pandas as pd
+import os
 
-DB_FILE = "marathon_training.db"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_FILE = os.path.join(BASE_DIR, "marathon_training.db")
 
 def init_db():
-    """Initializes SQLite database tables."""
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS settings (
-            key TEXT PRIMARY KEY,
-            value TEXT
-        )
-    ''')
-    
+    c.execute('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)')
     c.execute('''
         CREATE TABLE IF NOT EXISTS daily_logs (
             log_date TEXT PRIMARY KEY,
@@ -26,25 +20,17 @@ def init_db():
             leg_soreness INTEGER,
             overall_feel INTEGER,
             cross_train_mins INTEGER,
+            pain_locations TEXT,
             notes TEXT
         )
     ''')
-    
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS weekly_targets (
-            week_start_date TEXT PRIMARY KEY,
-            suggested_mileage REAL,
-            target_mileage REAL
-        )
-    ''')
-    
     conn.commit()
     conn.close()
 
 def set_setting(key: str, value: str):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, value))
+    c.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, str(value)))
     conn.commit()
     conn.close()
 
@@ -56,17 +42,16 @@ def get_setting(key: str, default=None):
     conn.close()
     return row[0] if row else default
 
-def save_daily_log(log_date: str, distance: float, workout_type: str, 
-                   time_of_day: str, temp: float, humidity: float, 
-                   leg_soreness: int, overall_feel: int, cross_train_mins: int, notes: str):
+def save_daily_log(log_date, distance, workout_type, time_of_day, temp, humidity, 
+                   soreness, feel, cross_train_mins, pain_locations, notes):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     c.execute('''
         INSERT OR REPLACE INTO daily_logs 
         (log_date, distance_miles, workout_type, time_of_day, temp_f, humidity_pct, 
-         leg_soreness, overall_feel, cross_train_mins, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (log_date, distance, workout_type, time_of_day, temp, humidity, leg_soreness, overall_feel, cross_train_mins, notes))
+         leg_soreness, overall_feel, cross_train_mins, pain_locations, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (log_date, distance, workout_type, time_of_day, temp, humidity, soreness, feel, cross_train_mins, pain_locations, notes))
     conn.commit()
     conn.close()
 
