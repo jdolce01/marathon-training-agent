@@ -2,17 +2,27 @@ import os
 import streamlit as st
 from openai import OpenAI
 
-# Pulls key from Streamlit Secrets on the cloud, or environment variable locally
-api_key = st.secrets.get("OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY")
-client = OpenAI(api_key=api_key)
+def get_openai_client():
+    # Check Streamlit Cloud Secrets first, then local environment variable
+    api_key = None
+    if "OPENAI_API_KEY" in st.secrets:
+        api_key = st.secrets["OPENAI_API_KEY"]
+    else:
+        api_key = os.environ.get("OPENAI_API_KEY")
+        
+    if not api_key:
+        st.error("⚠️ OpenAI API Key not found. Please add OPENAI_API_KEY to Streamlit Secrets or environment variables.")
+        st.stop()
+        
+    return OpenAI(api_key=api_key)
 
 def generate_daily_feedback(recent_logs, today_log):
+    client = get_openai_client()
     system_prompt = (
         "You are an expert marathon coach specializing in collegiate-level runners transitioning "
         "to the marathon distance. Analyze the runner's last few days alongside today's run. "
         "Provide 2-3 concise sentences evaluating recovery, impact of weather/humidity, and "
-        "whether to modify tomorrow's planned workout (e.g., recommend a bike/cross-train day "
-        "if leg soreness scale <= 2 for consecutive days)."
+        "whether to modify tomorrow's planned workout."
     )
     
     user_content = f"""
@@ -34,6 +44,7 @@ def generate_daily_feedback(recent_logs, today_log):
     return response.choices[0].message.content
 
 def recommend_weekly_mileage(weeks_out, recent_weekly_avg):
+    client = get_openai_client()
     system_prompt = (
         "You are an expert distance running coach. Suggest a weekly target mileage for a former "
         "collegiate runner building for a marathon. Follow standard periodization rules "
