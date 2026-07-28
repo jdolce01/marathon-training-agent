@@ -1,7 +1,10 @@
 import os
+import streamlit as st
 from openai import OpenAI
 
-client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+# Pulls key from Streamlit Secrets on the cloud, or environment variable locally
+api_key = st.secrets.get("OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY")
+client = OpenAI(api_key=api_key)
 
 def generate_daily_feedback(recent_logs, today_log):
     system_prompt = (
