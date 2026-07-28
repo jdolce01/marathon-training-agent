@@ -1,0 +1,7 @@
+# Python environment
+venv/
+__pycache__/
+
+# Local data & secret keys
+.env
+.streamlit/secrets.toml
