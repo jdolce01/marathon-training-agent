@@ -2,21 +2,24 @@ import requests
 import pandas as pd
 import re
 from datetime import datetime, timedelta
-import weasyprint
 import data_store
+
+# REPORTLAB IMPORTS (Pure Python PDF Generation - No pango/cairo required)
+from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 HADDONFIELD_LAT = 39.8912
 HADDONFIELD_LON = -75.0377
 
 
-# 1. AUTOMATIC REAL-TIME & HISTORICAL WEATHER FETCH (Haddonfield, NJ)
+# 1. AUTOMATIC REAL-TIME WEATHER FETCH (Haddonfield, NJ)
 def fetch_haddonfield_weather(log_date_str: str) -> dict:
-    """Fetches real temperature and humidity for Haddonfield, NJ for a given date."""
     try:
         log_dt = datetime.strptime(log_date_str, "%Y-%m-%d").date()
         today_dt = datetime.now().date()
 
-        # If today or past, use archive/current API; if future, use forecast API
         if log_dt <= today_dt:
             url = f"https://api.open-meteo.com/v1/forecast?latitude={HADDONFIELD_LAT}&longitude={HADDONFIELD_LON}&daily=temperature_2m_max,relative_humidity_2m_mean&temperature_unit=fahrenheit&timezone=America/New_York&start_date={log_date_str}&end_date={log_date_str}"
         else:
@@ -35,40 +38,84 @@ def fetch_haddonfield_weather(log_date_str: str) -> dict:
         return {"temp_f": 70.0, "humidity_pct": 50.0}
 
 
-# 2. PDF TRAINING PLAN GENERATOR
+# 2. PURE-PYTHON PDF TRAINING PLAN GENERATOR (ReportLab)
 def generate_pdf_training_plan(output_pdf_path: str = "Julia_Marathon_Training_Plan.pdf") -> str:
-    """Generates a complete week-by-week PDF schedule up to race day."""
     marathon_date_str = data_store.get_setting("marathon_date", "2026-11-01")
     target_time_str = data_store.get_setting("target_time", "03:30:00")
-    baseline = float(data_store.get_setting("baseline_mileage", "30.0"))
     max_cap = float(data_store.get_setting("max_mileage_cap", "50.0"))
     framework = data_store.get_setting("training_framework", "Pfitzinger (Pfitz)")
 
     m_date = datetime.strptime(marathon_date_str, "%Y-%m-%d").date()
     today_dt = datetime.now().date()
     weeks_left = max(1, (m_date - today_dt).days // 7)
-
     paces = calculate_target_paces(target_time_str)
 
-    rows_html = ""
+    doc = SimpleDocTemplate(output_pdf_path, pagesize=letter, rightMargin=20, leftMargin=20, topMargin=20,
+                            bottomMargin=20)
+    styles = getSampleStyleSheet()
+
+    title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontName='Helvetica-Bold', fontSize=18,
+                                 textColor=colors.HexColor('#0284c7'), spaceAfter=4)
+    sub_style = ParagraphStyle('SubStyle', parent=styles['Normal'], fontName='Helvetica', fontSize=10,
+                               textColor=colors.HexColor('#475569'), spaceAfter=12)
+    cell_style = ParagraphStyle('Cell', fontName='Helvetica', fontSize=8.5, textColor=colors.HexColor('#1e293b'))
+    cell_bold = ParagraphStyle('CellB', fontName='Helvetica-Bold', fontSize=8.5, textColor=colors.HexColor('#0f172a'))
+    header_cell = ParagraphStyle('HCell', fontName='Helvetica-Bold', fontSize=8.5, textColor=colors.white)
+
+    elements = []
+
+    # Header Section
+    elements.append(Paragraph("🏃 Custom Marathon Training Schedule", title_style))
+    elements.append(
+        Paragraph(f"Prepared for Julia Dolce | Location: Haddonfield, NJ | Target Race Date: {marathon_date_str}",
+                  sub_style))
+
+    # Metadata Box Table
+    meta_data = [
+        [
+            Paragraph("<b>Framework:</b> " + framework, cell_style),
+            Paragraph("<b>Max Cap:</b> " + str(max_cap) + " mi/wk", cell_style),
+            Paragraph("<b>Target Time:</b> " + target_time_str, cell_style),
+            Paragraph("<b>Goal MP:</b> " + paces['Goal Marathon Pace (MP)'], cell_style)
+        ]
+    ]
+    meta_table = Table(meta_data, colWidths=[140, 120, 140, 140])
+    meta_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#f1f5f9')),
+        ('BOX', (0, 0), (-1, -1), 1, colors.HexColor('#cbd5e1')),
+        ('INNERGRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e1')),
+        ('PADDING', (0, 0), (-1, -1), 6),
+    ]))
+    elements.append(meta_table)
+    elements.append(Spacer(1, 12))
+
+    # Weekly Schedule Table
+    table_data = [[
+        Paragraph("Wk", header_cell),
+        Paragraph("Dates", header_cell),
+        Paragraph("Phase", header_cell),
+        Paragraph("Target", header_cell),
+        Paragraph("Mid-Week Run", header_cell),
+        Paragraph("Quality Workout", header_cell),
+        Paragraph("Weekend Long Run", header_cell)
+    ]]
+
     for w in range(1, weeks_left + 1):
         wk_target = calculate_periodized_target(weeks_ahead=w - 1)
         wk_start = today_dt + timedelta(weeks=w - 1)
         wk_end = wk_start + timedelta(days=6)
         date_str = f"{wk_start.strftime('%b %d')} - {wk_end.strftime('%b %d')}"
 
-        # Determine phase
         rev_index = weeks_left - w + 1
         if rev_index == 1:
-            phase_tag = "<span style='color:#f43f5e; font-weight:bold;'>Race Week</span>"
+            phase_tag = "Race Week"
         elif rev_index <= 3:
-            phase_tag = f"<span style='color:#fb923c; font-weight:bold;'>Taper Wk {4 - rev_index}</span>"
+            phase_tag = f"Taper Wk {4 - rev_index}"
         elif w % 4 == 0:
-            phase_tag = "<span style='color:#facc15; font-weight:bold;'>Cutback</span>"
+            phase_tag = "Cutback Wk"
         else:
-            phase_tag = f"<span style='color:#4ade80; font-weight:bold;'>Build Step {(w % 4)}</span>"
+            phase_tag = f"Build Step {(w % 4)}"
 
-        # Proportional workout miles based on framework
         if framework == "Hanson Method":
             long_run = round(min(wk_target * 0.30, 16.0), 1)
             mid_long = round(min(wk_target * 0.18, 8.0), 1)
@@ -77,106 +124,57 @@ def generate_pdf_training_plan(output_pdf_path: str = "Julia_Marathon_Training_P
             long_run = round(min(wk_target * 0.33, 20.0), 1)
             mid_long = round(min(wk_target * 0.20, 10.0), 1)
             tempo = round(max(3.0, wk_target * 0.12), 1)
-        else:  # Pfitz
+        else:
             long_run = round(min(wk_target * 0.35, 20.0), 1)
             mid_long = round(min(wk_target * 0.22, 12.0), 1)
             tempo = round(max(3.0, wk_target * 0.12), 1)
 
-        rows_html += f"""
-        <tr>
-            <td>Wk {w}</td>
-            <td>{date_str}</td>
-            <td>{phase_tag}</td>
-            <td><b>{wk_target} mi</b></td>
-            <td>{mid_long} mi Aerobic</td>
-            <td>{tempo} mi LT/MP</td>
-            <td>{long_run} mi Long Run</td>
-        </tr>
-        """
+        table_data.append([
+            Paragraph(f"Wk {w}", cell_style),
+            Paragraph(date_str, cell_style),
+            Paragraph(phase_tag, cell_bold),
+            Paragraph(f"{wk_target} mi", cell_bold),
+            Paragraph(f"{mid_long} mi Aerobic", cell_style),
+            Paragraph(f"{tempo} mi LT/MP", cell_style),
+            Paragraph(f"{long_run} mi Long Run", cell_style)
+        ])
 
-    html_content = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-    <style>
-        @page {{ size: A4 portrait; margin: 12mm 10mm; background-color: #0f172a; }}
-        body {{ font-family: Arial, sans-serif; color: #f8fafc; background-color: #0f172a; font-size: 9.5pt; margin:0; padding:0; }}
-        .header {{ background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 14px; margin-bottom: 12px; }}
-        .title {{ font-size: 18pt; font-weight: bold; color: #38bdf8; margin-bottom: 4px; }}
-        .subtitle {{ font-size: 9.5pt; color: #94a3b8; }}
-        .meta-table {{ width: 100%; margin-top: 10px; border-spacing: 6px; border-collapse: separate; }}
-        .meta-td {{ background: #0f172a; padding: 6px 10px; border-radius: 4px; border: 1px solid #334155; width: 25%; }}
-        .meta-lbl {{ font-size: 7.5pt; color: #94a3b8; text-transform: uppercase; }}
-        .meta-val {{ font-size: 10.5pt; font-weight: bold; color: #f1f5f9; }}
-        table.plan {{ width: 100%; border-collapse: collapse; margin-top: 8px; background-color: #1e293b; border-radius: 6px; overflow: hidden; }}
-        th {{ background-color: #334155; color: #38bdf8; text-align: left; padding: 7px 8px; font-size: 8pt; text-transform: uppercase; }}
-        td {{ padding: 6px 8px; border-bottom: 1px solid #334155; font-size: 8.5pt; color: #cbd5e1; }}
-        tr:nth-child(even) {{ background-color: #182232; }}
-        .footer {{ margin-top: 12px; text-align: center; font-size: 8pt; color: #64748b; }}
-    </style>
-    </head>
-    <body>
-        <div class="header">
-            <div class="title">🏃 Custom Marathon Training Schedule</div>
-            <div class="subtitle">Prepared for Julia Dolce | Location: Haddonfield, NJ | Target Date: {marathon_date_str}</div>
-            <table class="meta-table">
-                <tr>
-                    <td class="meta-td"><div class="meta-lbl">Framework</div><div class="meta-val">{framework}</div></td>
-                    <td class="meta-td"><div class="meta-lbl">Max Cap</div><div class="meta-val">{max_cap} mi/wk</div></td>
-                    <td class="meta-td"><div class="meta-lbl">Target Time</div><div class="meta-val">{target_time_str}</div></td>
-                    <td class="meta-td"><div class="meta-lbl">Goal MP</div><div class="meta-val">{paces['Goal Marathon Pace (MP)']}</div></td>
-                </tr>
-            </table>
-        </div>
-        <table class="plan">
-            <thead>
-                <tr>
-                    <th style="width: 7%;">Wk</th>
-                    <th style="width: 17%;">Dates</th>
-                    <th style="width: 13%;">Phase</th>
-                    <th style="width: 11%;">Target</th>
-                    <th style="width: 17%;">Mid-Week Run</th>
-                    <th style="width: 17%;">Quality Workout</th>
-                    <th style="width: 18%;">Long Run</th>
-                </tr>
-            </thead>
-            <tbody>
-                {rows_html}
-            </tbody>
-        </table>
-        <div class="footer">Generated by Marathon AI Coach • Custom Periodized Plan</div>
-    </body>
-    </html>
-    """
+    plan_table = Table(table_data, colWidths=[35, 95, 75, 60, 95, 90, 100])
+    plan_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0284c7')),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f8fafc')]),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e2e8f0')),
+        ('PADDING', (0, 0), (-1, -1), 5),
+    ]))
 
-    HTML(string=html_content).write_pdf(output_pdf_path)
+    elements.append(plan_table)
+    doc.build(elements)
     return output_pdf_path
 
 
-# 3. FATIGUE & HEALTH DIAGNOSTIC ENGINE FOR NOTES
+# 3. FATIGUE & HEALTH DIAGNOSTICS FOR NOTES
 def analyze_notes_for_fatigue(text: str) -> list:
-    """Scans free-text log notes for fatigue and sluggishness keywords."""
     if not text: return []
     text_lower = text.lower()
     fatigue_keywords = ["fatigue", "sluggish", "tired", "exhausted", "heavy legs", "low energy", "dizzy", "brain fog",
                         "drained", "poor sleep"]
-    matched = [kw for kw in fatigue_keywords if re.search(r'\b' + re.escape(kw) + r'\b', text_lower)]
-    return list(set(matched))
+    return list(set([kw for kw in fatigue_keywords if re.search(r'\b' + re.escape(kw) + r'\b', text_lower)]))
 
 
 def get_fatigue_health_diagnostics() -> str:
-    """Returns evidence-based health reasons for training fatigue."""
     return (
         "⚡ **Fatigue & Health Cause Diagnostics:**\n"
-        "- **1. Carbohydrate / Glycogen Depletion:** Low glycogen stores make easy paces feel heavy. Target 3-5g carbs per kg bodyweight on build days.\n"
-        "- **2. Chronic Sleep Deficit:** Inadequate deep sleep impairs human growth hormone (HGH) release and muscle repair.\n"
+        "- **1. Carbohydrate / Glycogen Depletion:** Low glycogen stores make easy paces feel heavy. Target 3-5g carbs per kg bodyweight.\n"
+        "- **2. Chronic Sleep Deficit:** Inadequate deep sleep impairs growth hormone release and muscle repair.\n"
         "- **3. Dehydration / Electrolyte Loss:** Deficits in sodium/potassium reduce blood plasma volume, raising heart rate.\n"
         "- **4. High Systemic / Neural Fatigue:** Accumulated training load without adequate cutback weeks.\n"
         "- **5. Low Ferritin / Iron Levels:** Common in high-mileage runners; reduces oxygen-carrying capacity."
     )
 
 
-# 4. HEART RATE ZONES (Karvonen)
+# 4. HEART RATE ZONES (Karvonen Method)
 def calculate_hr_zones(max_hr: int, resting_hr: int) -> dict:
     hrr = max_hr - resting_hr
     return {

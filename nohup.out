@@ -1,0 +1,42 @@
+
+  You can now view your Streamlit app in your browser.
+
+  URL: http://0.0.0.0:8501
+
+2026-07-28 22:52:54.764 Uncaught app exception
+Traceback (most recent call last):
+  File "/opt/anaconda3/lib/python3.12/site-packages/streamlit/runtime/scriptrunner/exec_code.py", line 85, in exec_func_with_error_handling
+    result = func()
+             ^^^^^^
+  File "/opt/anaconda3/lib/python3.12/site-packages/streamlit/runtime/scriptrunner/script_runner.py", line 576, in code_to_exec
+    exec(code, module.__dict__)
+  File "/Users/juliadolce/Desktop/marathon-training-agent/app.py", line 6, in <module>
+    import agent
+  File "/Users/juliadolce/Desktop/marathon-training-agent/agent.py", line 4, in <module>
+    import tools
+  File "/Users/juliadolce/Desktop/marathon-training-agent/tools.py", line 5, in <module>
+    import weasyprint
+  File "/opt/anaconda3/lib/python3.12/site-packages/weasyprint/__init__.py", line 371, in <module>
+    from .css import preprocess_stylesheet  # noqa: I001, E402
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/anaconda3/lib/python3.12/site-packages/weasyprint/css/__init__.py", line 29, in <module>
+    from ..text.fonts import FontConfiguration
+  File "/opt/anaconda3/lib/python3.12/site-packages/weasyprint/text/fonts.py", line 17, in <module>
+    from .constants import (  # isort:skip
+  File "/opt/anaconda3/lib/python3.12/site-packages/weasyprint/text/constants.py", line 5, in <module>
+    from .ffi import pango
+  File "/opt/anaconda3/lib/python3.12/site-packages/weasyprint/text/ffi.py", line 479, in <module>
+    pango = _dlopen(
+            ^^^^^^^^
+  File "/opt/anaconda3/lib/python3.12/site-packages/weasyprint/text/ffi.py", line 464, in _dlopen
+    return ffi.dlopen(names[0], flags)  # pragma: no cover
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/anaconda3/lib/python3.12/site-packages/cffi/api.py", line 150, in dlopen
+    lib, function_cache = _make_ffi_library(self, name, flags)
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/anaconda3/lib/python3.12/site-packages/cffi/api.py", line 834, in _make_ffi_library
+    backendlib = _load_backend_lib(backend, libname, flags)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/anaconda3/lib/python3.12/site-packages/cffi/api.py", line 829, in _load_backend_lib
+    raise OSError(msg)
+OSError: cannot load library 'libpango-1.0-0': dlopen(libpango-1.0-0, 0x0002): tried: 'libpango-1.0-0' (no such file), '/System/Volumes/Preboot/Cryptexes/OSlibpango-1.0-0' (no such file), '/opt/anaconda3/lib/python3.12/site-packages/../../libpango-1.0-0' (no such file), '/opt/anaconda3/bin/../lib/libpango-1.0-0' (no such file), '/usr/lib/libpango-1.0-0' (no such file, not in dyld cache), 'libpango-1.0-0' (no such file), '/usr/local/lib/libpango-1.0-0' (no such file), '/usr/lib/libpango-1.0-0' (no such file, not in dyld cache).  Additionally, ctypes.util.find_library() did not manage to locate a library called 'libpango-1.0-0'
