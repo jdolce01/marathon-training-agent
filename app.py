@@ -24,15 +24,13 @@ with tab1:
     st.subheader("Weekly Volume & Periodization")
     target_mileage = tools.calculate_periodized_target(weeks_ahead=0)
 
-    c1, c2, c3 = st.columns(3)
+    c1, c2 = st.columns(2)
     with c1:
         st.metric("Target Volume (This Week)", f"{target_mileage} mi")
     with c2:
         st.metric("Weeks to Marathon", f"{agent.calculate_weeks_remaining()} Wks Out")
-    with c3:
-        st.number_input("Override Target (mi)", value=target_mileage, step=1.0)
 
-    # Shoe Mileage Alert Banner
+    # Shoe Alert Banner
     shoe_status = tools.get_shoe_mileage_status()
     if shoe_status["alert"]:
         st.warning(shoe_status["alert"])
@@ -40,13 +38,27 @@ with tab1:
     st.markdown("### Agent Coaching Guidance")
     st.info(agent.get_coaching_recommendation())
 
+    # Weather Forecast
     weather_data = tools.get_detailed_weather_forecast()
     if weather_data.get("slots"):
-        st.markdown(f"#### 🌤️ Hourly Forecast: {weather_data['date_str']} (Morning)")
+        st.markdown(f"#### 🌤️ Hourly Forecast: {weather_data['date_str']} (Haddonfield, NJ Morning)")
         w_cols = st.columns(len(weather_data["slots"]))
         for idx, slot in enumerate(weather_data["slots"]):
             with w_cols[idx]:
                 st.metric(slot["time"], f"{slot['temp']}°F", f"{slot['precip']}% Rain | {slot['humidity']}% Hum")
+
+    st.markdown("---")
+
+    # Download PDF Training Plan Button
+    st.subheader("📄 Download Full Marathon PDF Schedule")
+    pdf_filename = tools.generate_pdf_training_plan()
+    with open(pdf_filename, "rb") as pdf_file:
+        st.download_button(
+            label="📥 Download Complete Custom PDF Plan",
+            data=pdf_file,
+            file_name="Julia_Marathon_Training_Plan.pdf",
+            mime="application/pdf"
+        )
 
     st.markdown("---")
 
@@ -85,7 +97,8 @@ with tab1:
 # --- TAB 2: ADVICE BOT ---
 with tab2:
     st.subheader("💬 Interactive Coach Advice Bot")
-    user_q = st.text_input("Ask your coach:", value="What will my mileage be in 4 weeks?")
+    st.write("Ask specific questions about dates, max mileage specs, fatigue health causes, recovery, or pacing.")
+    user_q = st.text_input("Ask your coach:", value="How far should I run on October 12th?")
     if st.button("Ask Bot"):
         st.markdown(agent.answer_user_query(user_q))
 
@@ -94,6 +107,12 @@ with tab3:
     st.subheader("Daily Workout Log & Physical Check-In")
     with st.form("log_form"):
         log_date = st.date_input("Date", value=date.today())
+
+        # Auto fetch weather for Haddonfield, NJ on selected date
+        weather_info = tools.fetch_haddonfield_weather(str(log_date))
+        st.caption(
+            f"🌤️ **Auto-Fetched Weather (Haddonfield, NJ):** {weather_info['temp_f']}°F | {weather_info['humidity_pct']}% Humidity")
+
         col1, col2 = st.columns(2)
         with col1:
             distance = st.number_input("Run Miles", min_value=0.0, step=0.5)
@@ -103,16 +122,19 @@ with tab3:
         with col2:
             xt_mins = st.number_input("Bike/Elliptical Mins", min_value=0, step=5)
             feel = st.slider("Overall Feel (1-5)", 1, 5, 4)
-            active_shoe = data_store.get_setting("active_shoe_name", "Primary Trainers")
+            active_shoe = data_store.get_setting("active_shoe_name", "Nike Pegasus 40")
             st.text_input("Running Shoe Pair", value=active_shoe, disabled=True)
 
-        notes = st.text_area("Notes & Physical Discomfort Details",
-                             placeholder="Example: Left knee felt sharp on downhills.")
+        notes = st.text_area("Notes & Physical Details",
+                             placeholder="Example: Left knee felt sharp on downhills, or felt super sluggish on mile 3.")
 
         if st.form_submit_button("Submit Workout Log"):
-            data_store.save_daily_log(str(log_date), distance, workout_type, "Morning", 70.0, 50.0, soreness, feel,
-                                      xt_mins, avg_pace_input, notes, active_shoe)
-            st.success("Log saved! Prehab & shoe wear tracking updated.")
+            data_store.save_daily_log(
+                str(log_date), distance, workout_type, "Morning",
+                weather_info['temp_f'], weather_info['humidity_pct'],
+                soreness, feel, xt_mins, avg_pace_input, notes, active_shoe
+            )
+            st.success("Log saved! Real-time Haddonfield weather auto-recorded.")
 
 # --- TAB 4: HISTORY ---
 with tab4:
@@ -148,12 +170,11 @@ with tab5:
             st.markdown("""
             **Core Philosophy:** Heavy focus on building high aerobic capacity and lactate threshold. Signature element is the **Mid-Week Medium-Long Run (11–15 miles)**.
             * **Structure:** 1 Tempo/Threshold Run, 1 Mid-Week Medium-Long Run, 1 Weekend Long Run (up to 20 mi), 2–3 Easy Runs.
-            * **Best For:** Runners with a solid baseline who build volume well and want strong stamina for the final 6 miles.
             """)
 
         with st.expander("📖 Read More: Jack Daniels (Formula) Framework"):
             st.markdown("""
-            **Core Philosophy:** Scientific VDOT pacing zones (E, M, T, I, R paces). Highly structured workouts tailored specifically to threshold and VO2 max adaptations.
+            **Core Philosophy:** Scientific VDOT pacing zones (E, M, T, I, R paces).
             * **Structure:** 2 Quality Workout Days + 4 Easy/Recovery Days.
             """)
 
@@ -200,7 +221,7 @@ with tab5:
         data_store.set_setting("active_shoe_name", shoe_name_input)
         data_store.set_setting("shoe_initial_miles", str(shoe_initial_input))
         data_store.set_setting("shoe_max_limit", str(shoe_limit_input))
-        st.success("Logistics & shoe tracking settings saved!")
+        st.success("Logistics saved! PDF schedule updated.")
 
     st.markdown("---")
     st.subheader("🎯 Target Paces & Heart Rate Zones")
