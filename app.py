@@ -9,7 +9,6 @@ import tools
 st.set_page_config(page_title="Marathon AI Coach", page_icon="🏃", layout="wide")
 data_store.init_db()
 
-# DYNAMIC TIME-OF-DAY GREETING
 st.title(agent.get_time_of_day_greeting("Julia"))
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
@@ -20,7 +19,7 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "⚙️ Logistics & Plan Setup"
 ])
 
-# --- TAB 1: WEEKLY DASHBOARD ---
+# --- TAB 1: DASHBOARD ---
 with tab1:
     st.subheader("Weekly Volume & Periodization")
     target_mileage = tools.calculate_periodized_target(weeks_ahead=0)
@@ -33,10 +32,14 @@ with tab1:
     with c3:
         st.number_input("Override Target (mi)", value=target_mileage, step=1.0)
 
+    # Shoe Mileage Alert Banner
+    shoe_status = tools.get_shoe_mileage_status()
+    if shoe_status["alert"]:
+        st.warning(shoe_status["alert"])
+
     st.markdown("### Agent Coaching Guidance")
     st.info(agent.get_coaching_recommendation())
 
-    # Hourly Weather Cards
     weather_data = tools.get_detailed_weather_forecast()
     if weather_data.get("slots"):
         st.markdown(f"#### 🌤️ Hourly Forecast: {weather_data['date_str']} (Morning)")
@@ -47,7 +50,6 @@ with tab1:
 
     st.markdown("---")
 
-    # Framework Workouts Display
     sel_framework = data_store.get_setting("training_framework", "Pfitzinger (Pfitz)")
     sel_elevation = data_store.get_setting("course_elevation", "Flat / Fast (e.g. Philadelphia)")
     st.subheader(f"Suggested Workouts ({sel_framework})")
@@ -60,7 +62,6 @@ with tab1:
 
     st.markdown("---")
 
-    # Daily Zero-Filled Plot
     st.subheader("Daily Running Volume (Rest Days Drop to 0)")
     df_daily = tools.get_zero_filled_df()
     if not df_daily.empty:
@@ -68,7 +69,6 @@ with tab1:
         fig_daily.update_traces(line=dict(width=3), marker=dict(size=7))
         st.plotly_chart(fig_daily, use_container_width=True)
 
-    # Weekly Toggle Bar Chart
     st.subheader("Week-by-Week Volume Progression")
     if not df_daily.empty:
         mileage_type = st.radio("Select Metric:",
@@ -103,14 +103,16 @@ with tab3:
         with col2:
             xt_mins = st.number_input("Bike/Elliptical Mins", min_value=0, step=5)
             feel = st.slider("Overall Feel (1-5)", 1, 5, 4)
+            active_shoe = data_store.get_setting("active_shoe_name", "Primary Trainers")
+            st.text_input("Running Shoe Pair", value=active_shoe, disabled=True)
 
         notes = st.text_area("Notes & Physical Discomfort Details",
                              placeholder="Example: Left knee felt sharp on downhills.")
 
         if st.form_submit_button("Submit Workout Log"):
             data_store.save_daily_log(str(log_date), distance, workout_type, "Morning", 70.0, 50.0, soreness, feel,
-                                      xt_mins, avg_pace_input, notes)
-            st.success("Log saved! Prehab guidance updated.")
+                                      xt_mins, avg_pace_input, notes, active_shoe)
+            st.success("Log saved! Prehab & shoe wear tracking updated.")
 
 # --- TAB 4: HISTORY ---
 with tab4:
@@ -118,7 +120,7 @@ with tab4:
     df = data_store.get_logs_df()
     if not df.empty: st.data_editor(df, num_rows="dynamic")
 
-# --- TAB 5: LOGISTICS & PLAN SETUP WITH FRAMEWORK READ-MORE ACCORDIONS ---
+# --- TAB 5: LOGISTICS & PLAN SETUP ---
 with tab5:
     st.subheader("⚙️ Marathon Plan & Framework Setup")
 
@@ -142,29 +144,23 @@ with tab5:
                 data_store.get_setting("training_framework", "Pfitzinger (Pfitz)"))
         )
 
-        # --- READ MORE EXPANDERS FOR FRAMEWORKS ---
         with st.expander("📖 Read More: Pfitzinger (Pfitz) Framework"):
             st.markdown("""
             **Core Philosophy:** Heavy focus on building high aerobic capacity and lactate threshold. Signature element is the **Mid-Week Medium-Long Run (11–15 miles)**.
             * **Structure:** 1 Tempo/Threshold Run, 1 Mid-Week Medium-Long Run, 1 Weekend Long Run (up to 20 mi), 2–3 Easy Runs.
-            * **Best For:** Runners with a solid baseline who build volume well and want strong stamina for the final 6 miles of the race.
-            * **Mileage Adaptation:** Scaled down to a "Pfitz-Lite" schedule fitting your configured 35–50 mi cap.
+            * **Best For:** Runners with a solid baseline who build volume well and want strong stamina for the final 6 miles.
             """)
 
         with st.expander("📖 Read More: Jack Daniels (Formula) Framework"):
             st.markdown("""
-            **Core Philosophy:** Scientific VDOT pacing zones (E, M, T, I, R paces). Highly structured workouts tailored specifically to lactate threshold and VO2 max adaptations.
-            * **Structure:** 2 Quality Workout Days (Threshold Cruise Intervals or Marathon Pace Long Runs) + 4 Easy/Recovery Days.
-            * **Best For:** Goal-oriented runners who love exact pacing targets, structured track/tempo sessions, and precision.
-            * **Mileage Adaptation:** Workouts scale as exact percentages of your weekly target volume.
+            **Core Philosophy:** Scientific VDOT pacing zones (E, M, T, I, R paces). Highly structured workouts tailored specifically to threshold and VO2 max adaptations.
+            * **Structure:** 2 Quality Workout Days + 4 Easy/Recovery Days.
             """)
 
         with st.expander("📖 Read More: Hanson Marathon Method"):
             st.markdown("""
-            **Core Philosophy:** Cumulative Fatigue & No 20-Milers. Believes 20-mile runs on moderate volume cause excessive muscle damage. **Caps long runs at 16 miles**.
-            * **Structure:** 1 Speed/Strength Workout, 1 Marathon Pace Run, 1 Capped Long Run (16 mi max on tired legs), 3 Easy Days.
-            * **Best For:** Runners prone to injury on 18–20+ mile runs or those who prefer spreading volume evenly across 5–6 days.
-            * **Mileage Adaptation:** Perfect for lower/moderate volume caps (35–45 mpw).
+            **Core Philosophy:** Cumulative Fatigue & No 20-Milers. **Caps long runs at 16 miles**.
+            * **Structure:** 1 Speed/Strength Workout, 1 Marathon Pace Run, 1 Capped Long Run (16 mi max), 3 Easy Days.
             """)
 
         elevation_input = st.selectbox(
@@ -178,7 +174,21 @@ with tab5:
         resting_hr_input = st.number_input("Resting Heart Rate (BPM)",
                                            value=int(data_store.get_setting("resting_hr", "55")), step=1)
 
-    if st.button("Save Logistics & Framework Settings"):
+    st.markdown("---")
+    st.subheader("👟 Running Shoe Gear Tracker")
+    col_s1, col_s2, col_s3 = st.columns(3)
+    with col_s1:
+        shoe_name_input = st.text_input("Active Shoe Model",
+                                        value=data_store.get_setting("active_shoe_name", "Nike Pegasus 40"))
+    with col_s2:
+        shoe_initial_input = st.number_input("Starting Mileage on Shoe",
+                                             value=float(data_store.get_setting("shoe_initial_miles", "0.0")),
+                                             step=10.0)
+    with col_s3:
+        shoe_limit_input = st.number_input("Shoe Lifespan Limit (mi)",
+                                           value=float(data_store.get_setting("shoe_max_limit", "350.0")), step=25.0)
+
+    if st.button("Save Logistics & Shoe Settings"):
         data_store.set_setting("marathon_date", str(new_m_date))
         data_store.set_setting("baseline_mileage", str(baseline_input))
         data_store.set_setting("max_mileage_cap", str(max_cap_input))
@@ -187,7 +197,10 @@ with tab5:
         data_store.set_setting("course_elevation", elevation_input)
         data_store.set_setting("max_hr", str(max_hr_input))
         data_store.set_setting("resting_hr", str(resting_hr_input))
-        st.success("Logistics updated! Pacing, heart rate zones, and framework workouts recalculated.")
+        data_store.set_setting("active_shoe_name", shoe_name_input)
+        data_store.set_setting("shoe_initial_miles", str(shoe_initial_input))
+        data_store.set_setting("shoe_max_limit", str(shoe_limit_input))
+        st.success("Logistics & shoe tracking settings saved!")
 
     st.markdown("---")
     st.subheader("🎯 Target Paces & Heart Rate Zones")

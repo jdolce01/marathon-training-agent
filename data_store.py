@@ -19,7 +19,8 @@ def init_db():
             overall_feel INTEGER,
             cross_train_mins INTEGER,
             avg_pace TEXT,
-            notes TEXT
+            notes TEXT,
+            shoe_name TEXT
         )
     ''')
     c.execute('''
@@ -31,12 +32,12 @@ def init_db():
     conn.commit()
     conn.close()
 
-def save_daily_log(log_date, distance, workout_type, time_of_day, temp_f, humidity, soreness, feel, xt_mins, avg_pace, notes):
+def save_daily_log(log_date, distance, workout_type, time_of_day, temp_f, humidity, soreness, feel, xt_mins, avg_pace, notes, shoe_name="Default Shoes"):
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
     c.execute('''
-        INSERT INTO daily_logs (log_date, distance_miles, workout_type, time_of_day, temp_f, humidity_pct, leg_soreness, overall_feel, cross_train_mins, avg_pace, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO daily_logs (log_date, distance_miles, workout_type, time_of_day, temp_f, humidity_pct, leg_soreness, overall_feel, cross_train_mins, avg_pace, notes, shoe_name)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(log_date) DO UPDATE SET
             distance_miles=excluded.distance_miles,
             workout_type=excluded.workout_type,
@@ -47,8 +48,9 @@ def save_daily_log(log_date, distance, workout_type, time_of_day, temp_f, humidi
             overall_feel=excluded.overall_feel,
             cross_train_mins=excluded.cross_train_mins,
             avg_pace=excluded.avg_pace,
-            notes=excluded.notes
-    ''', (log_date, distance, workout_type, time_of_day, temp_f, humidity, soreness, feel, xt_mins, avg_pace, notes))
+            notes=excluded.notes,
+            shoe_name=excluded.shoe_name
+    ''', (log_date, distance, workout_type, time_of_day, temp_f, humidity, soreness, feel, xt_mins, avg_pace, notes, shoe_name))
     conn.commit()
     conn.close()
 

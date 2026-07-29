@@ -5,7 +5,36 @@ from datetime import datetime, timedelta
 import data_store
 
 
-# 1. HEART RATE ZONE CALCULATOR (Karvonen Method)
+# 1. SHOE MILEAGE TRACKER ENGINE
+def get_shoe_mileage_status() -> dict:
+    shoe_name = data_store.get_setting("active_shoe_name", "Primary Trainers")
+    initial_miles = float(data_store.get_setting("shoe_initial_miles", "0.0"))
+    max_limit = float(data_store.get_setting("shoe_max_limit", "350.0"))
+
+    df = data_store.get_logs_df()
+    logged_miles = 0.0
+    if not df.empty and 'distance_miles' in df:
+        logged_miles = df['distance_miles'].sum()
+
+    total_miles = round(initial_miles + logged_miles, 1)
+    pct_used = min(100.0, round((total_miles / max_limit) * 100, 1))
+
+    status_alert = None
+    if total_miles >= max_limit:
+        status_alert = f"🚨 **Shoe Replacement Alert ({shoe_name}):** You have logged **{total_miles} miles** on this pair (Max limit: {max_limit} mi). Cushioning foam is compressed, increasing risk of joint stress."
+    elif total_miles >= max_limit * 0.85:
+        status_alert = f"👟 **Shoe Wear Warning ({shoe_name}):** You are at **{total_miles} miles** ({pct_used}% of life). Consider breaking in a new pair for your long runs."
+
+    return {
+        "shoe_name": shoe_name,
+        "total_miles": total_miles,
+        "max_limit": max_limit,
+        "pct_used": pct_used,
+        "alert": status_alert
+    }
+
+
+# 2. HEART RATE ZONE CALCULATOR
 def calculate_hr_zones(max_hr: int, resting_hr: int) -> dict:
     hrr = max_hr - resting_hr
     return {
@@ -17,7 +46,7 @@ def calculate_hr_zones(max_hr: int, resting_hr: int) -> dict:
     }
 
 
-# 2. FRAMEWORK-SPECIFIC WORKOUT GENERATOR
+# 3. FRAMEWORK WORKOUT GENERATOR
 def get_framework_workouts(weekly_target: float, framework: str, elevation: str) -> list:
     hill_note = " (Include 150-200ft elevation gain for hilly course prep)" if "Hilly" in elevation else ""
 
@@ -44,7 +73,7 @@ def get_framework_workouts(weekly_target: float, framework: str, elevation: str)
             {"name": "Hanson Cumulative Fatigue Long Run", "type": "Long Run",
              "desc": f"{long_run} miles max. Designed to be run on tired legs after mid-week quality.{hill_note}"}
         ]
-    else:  # Jack Daniels
+    else:
         long_run = round(min(weekly_target * 0.33, 20.0), 1)
         tempo = round(max(3.0, weekly_target * 0.10), 1)
         return [
@@ -57,7 +86,7 @@ def get_framework_workouts(weekly_target: float, framework: str, elevation: str)
         ]
 
 
-# 3. HOURLY WEATHER FORECAST
+# 4. HOURLY WEATHER FORECAST
 def get_detailed_weather_forecast(latitude: float = 39.8912, longitude: float = -75.0377) -> dict:
     url = f"https://api.open-meteo.com/v1/forecast?latitude={latitude}&longitude={longitude}&hourly=precipitation_probability,temperature_2m,relative_humidity_2m&temperature_unit=fahrenheit&timezone=auto"
     try:
@@ -81,7 +110,7 @@ def get_detailed_weather_forecast(latitude: float = 39.8912, longitude: float = 
         return {"date_str": "Tomorrow", "slots": []}
 
 
-# 4. NLP PAIN EXTRACTION
+# 5. NLP PAIN EXTRACTION
 def analyze_notes_for_pain(text: str) -> list:
     if not text: return []
     text_lower = text.lower()
@@ -101,7 +130,7 @@ def get_prehab_for_keywords(keywords: list) -> dict:
     return {kw.title(): exercises.get(kw, ["10 mins general foam rolling and dynamic stretching"]) for kw in keywords}
 
 
-# 5. PERIODIZED VOLUME CALCULATOR
+# 6. PERIODIZED VOLUME CALCULATOR
 def calculate_periodized_target(weeks_ahead: int = 0) -> float:
     baseline = float(data_store.get_setting("baseline_mileage", "30.0"))
     max_cap = float(data_store.get_setting("max_mileage_cap", "50.0"))
