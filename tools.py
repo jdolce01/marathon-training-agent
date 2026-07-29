@@ -315,17 +315,30 @@ def calculate_periodized_target(weeks_ahead: int = 0) -> float:
 
 def get_zero_filled_df():
     df = data_store.get_logs_df()
-    if df.empty: return df
+    if df.empty:
+        return df
+
     df['log_date'] = pd.to_datetime(df['log_date'])
-    full_idx = pd.date_range(start=df['log_date'].min(),
-                             end=max(df['log_date'].max(), pd.to_datetime(datetime.now().date())), freq='D')
-    df.index.name = 'log_date'
-    df['distance_miles'] = df['distance_miles'].fillna(0.0)
-    df['cross_train_mins'] = df['cross_train_mins'].fillna(0)
-    df['effective_miles'] = df['distance_miles'] + (df['cross_train_mins'] / 10.0)
-    df['notes'] = df['notes'].fillna("")
-    df['leg_soreness'] = df['leg_soreness'].fillna(1)
-    return df.reset_index()
+    # Drop duplicate dates if any exist in raw logs
+    df = df.drop_duplicates(subset=['log_date'])
+
+    start_date = df['log_date'].min()
+    end_date = max(df['log_date'].max(), pd.to_datetime(datetime.now().date()))
+
+    full_idx = pd.date_range(start=start_date, end=end_date, freq='D')
+
+    # Reindex cleanly without index collision
+    df_indexed = df.set_index('log_date').reindex(full_idx)
+    df_indexed.index.name = 'log_date'
+
+    df_result = df_indexed.reset_index()
+    df_result['distance_miles'] = df_result['distance_miles'].fillna(0.0)
+    df_result['cross_train_mins'] = df_result['cross_train_mins'].fillna(0)
+    df_result['effective_miles'] = df_result['distance_miles'] + (df_result['cross_train_mins'] / 10.0)
+    df_result['notes'] = df_result['notes'].fillna("")
+    df_result['leg_soreness'] = df_result['leg_soreness'].fillna(1)
+
+    return df_result
 
 
 def calculate_target_paces(target_time_str: str) -> dict:
