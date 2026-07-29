@@ -126,7 +126,7 @@ with tab3:
             st.text_input("Running Shoe Pair", value=active_shoe, disabled=True)
 
         notes = st.text_area("Notes & Physical Details",
-                             placeholder="Example: Left knee felt sharp on downhills, or felt super sluggish on mile 3.")
+                             placeholder="Example: Left shin felt sore on downhills, or felt super sluggish on mile 3.")
 
         if st.form_submit_button("Submit Workout Log"):
             data_store.save_daily_log(
@@ -136,11 +136,41 @@ with tab3:
             )
             st.success("Log saved! Real-time Haddonfield weather auto-recorded.")
 
-# --- TAB 4: HISTORY ---
+            # Immediate feedback banner on submission
+            pains = tools.analyze_notes_for_pain(notes)
+            if pains:
+                st.warning(
+                    f"⚠️ **Discomfort Alert Detected:** Pain keywords ({', '.join([p.title() for p in pains])}) logged.")
+                prehab_dict = tools.get_prehab_for_keywords(pains)
+                for area, ex_list in prehab_dict.items():
+                    st.markdown(f"**🩹 Recommended Prehab for {area}:**")
+                    for ex in ex_list:
+                        st.markdown(f"- {ex}")
+
+# --- TAB 4: HISTORY & EDIT (WITH LIVE DB SYNC) ---
 with tab4:
     st.subheader("Edit Historical Logs")
     df = data_store.get_logs_df()
-    if not df.empty: st.data_editor(df, num_rows="dynamic")
+    if not df.empty:
+        edited_df = st.data_editor(df, num_rows="dynamic", key="history_editor")
+        if st.button("💾 Save Table Edits to Database"):
+            for idx, row in edited_df.iterrows():
+                data_store.save_daily_log(
+                    str(row['log_date'])[:10],
+                    float(row['distance_miles']),
+                    str(row['workout_type']),
+                    str(row.get('time_of_day', 'Morning')),
+                    float(row.get('temp_f', 70.0)),
+                    float(row.get('humidity_pct', 50.0)),
+                    int(row.get('leg_soreness', 1)),
+                    int(row.get('overall_feel', 4)),
+                    int(row.get('cross_train_mins', 0)),
+                    str(row.get('avg_pace', '08:30')),
+                    str(row.get('notes', '')),
+                    str(row.get('shoe_name', 'Primary Trainers'))
+                )
+            st.success("Table edits saved to database! Dashboard guidance updated.")
+            st.rerun()
 
 # --- TAB 5: LOGISTICS & PLAN SETUP ---
 with tab5:
