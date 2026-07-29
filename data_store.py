@@ -1,6 +1,5 @@
 import sqlite3
 import pandas as pd
-from datetime import datetime
 
 DB_NAME = "marathon_training.db"
 
@@ -19,7 +18,6 @@ def init_db():
             leg_soreness INTEGER,
             overall_feel INTEGER,
             cross_train_mins INTEGER,
-            pain_locations TEXT,
             avg_pace TEXT,
             notes TEXT
         )
@@ -33,12 +31,12 @@ def init_db():
     conn.commit()
     conn.close()
 
-def save_daily_log(log_date, distance, workout_type, time_of_day, temp_f, humidity, soreness, feel, xt_mins, pain_locations, avg_pace, notes):
+def save_daily_log(log_date, distance, workout_type, time_of_day, temp_f, humidity, soreness, feel, xt_mins, avg_pace, notes):
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
     c.execute('''
-        INSERT INTO daily_logs (log_date, distance_miles, workout_type, time_of_day, temp_f, humidity_pct, leg_soreness, overall_feel, cross_train_mins, pain_locations, avg_pace, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO daily_logs (log_date, distance_miles, workout_type, time_of_day, temp_f, humidity_pct, leg_soreness, overall_feel, cross_train_mins, avg_pace, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(log_date) DO UPDATE SET
             distance_miles=excluded.distance_miles,
             workout_type=excluded.workout_type,
@@ -48,10 +46,9 @@ def save_daily_log(log_date, distance, workout_type, time_of_day, temp_f, humidi
             leg_soreness=excluded.leg_soreness,
             overall_feel=excluded.overall_feel,
             cross_train_mins=excluded.cross_train_mins,
-            pain_locations=excluded.pain_locations,
             avg_pace=excluded.avg_pace,
             notes=excluded.notes
-    ''', (log_date, distance, workout_type, time_of_day, temp_f, humidity, soreness, feel, xt_mins, pain_locations, avg_pace, notes))
+    ''', (log_date, distance, workout_type, time_of_day, temp_f, humidity, soreness, feel, xt_mins, avg_pace, notes))
     conn.commit()
     conn.close()
 

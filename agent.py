@@ -2,11 +2,19 @@ from datetime import datetime, date
 import data_store
 import tools
 
-CROSS_TRAIN_MINS_PER_MILE = 10.0
+
+def get_time_of_day_greeting(name: str = "Julia") -> str:
+    hour = datetime.now().hour
+    if 5 <= hour < 12:
+        return f"Good morning, {name} ☀️"
+    elif 12 <= hour < 18:
+        return f"Good afternoon, {name} 🌤️"
+    else:
+        return f"Good evening, {name} 🌙"
 
 
 def calculate_effective_miles(run_miles: float, cross_train_mins: int) -> float:
-    return round(run_miles + (cross_train_mins / CROSS_TRAIN_MINS_PER_MILE), 1)
+    return round(run_miles + (cross_train_mins / 10.0), 1)
 
 
 def calculate_weeks_remaining() -> int:
@@ -17,86 +25,93 @@ def calculate_weeks_remaining() -> int:
 
 
 def get_coaching_recommendation():
-    """Generates reactive coaching plan analyzing past logs and notes."""
     df = data_store.get_logs_df()
     advice = []
 
-    # 1. Weather Alert
-    weather_info = tools.get_weather_alert()
-    advice.append(weather_info)
+    # Weather Forecast
+    weather_data = tools.get_detailed_weather_forecast()
+    slots = weather_data.get("slots", [])
+    if slots:
+        avg_temp = round(sum(s['temp'] for s in slots) / len(slots))
+        max_rain = max(s['precip'] for s in slots)
+        avg_hum = round(sum(s['humidity'] for s in slots) / len(slots))
+
+        weather_str = f"🌡️ **Morning Weather Forecast ({weather_data['date_str']} 6-9 AM):** {avg_temp}°F | {avg_hum}% Humidity | {max_rain}% Rain Chance."
+        if max_rain > 40:
+            weather_str += " ⚠️ Rain likely; plan for rain gear or an indoor session."
+        advice.append(weather_str)
 
     if df.empty:
         advice.append(
-            "🟢 **Welcome to your build!** Enter your historical baseline in settings to start your 10% step-up target.")
+            "🟢 **Welcome to your marathon build!** Set up your marathon target date and volume caps in the **Logistics Setup** tab.")
         return "\n\n".join(advice)
 
     recent_7 = df.tail(7)
-    avg_soreness = recent_7['leg_soreness'].mean() if 'leg_soreness' in recent_7 else 1
 
-    # 2. Free-text Pain Scanning from Notes & Dropdown
-    notes_text = " ".join(recent_7['notes'].dropna().tolist())
-    detected_pains = tools.analyze_notes_for_pain(notes_text)
+    # Free-Text Notes NLP Pain Extraction
+    all_notes = " ".join(recent_7['notes'].dropna().tolist())
+    detected_pains = tools.analyze_notes_for_pain(all_notes)
 
-    if 'pain_locations' in recent_7:
-        for p in recent_7['pain_locations'].dropna().unique():
-            if p and p != "None":
-                detected_pains.append(p.lower())
-    detected_pains = list(set(detected_pains))
-
-    # 3. Pain & Prehab Guidance
     if detected_pains:
         pains_str = ", ".join([p.title() for p in detected_pains])
         advice.append(
-            f"⚠️ **Injury Warning ({pains_str}):** Discomfort or pain detected in your recent logs/notes. Consider replacing your next high-impact run with cross-training.")
+            f"⚠️ **Injury / Discomfort Alert ({pains_str}):** Pain keywords detected in your recent log notes. Consider reducing impact volume.")
         prehab_dict = tools.get_prehab_for_keywords(detected_pains)
         for area, ex_list in prehab_dict.items():
             ex_formatted = "\n".join([f"  - {e}" for e in ex_list])
             advice.append(f"🩹 **Targeted Prehab for {area}:**\n{ex_formatted}")
-
-    # 4. Fatigue Check
-    elif avg_soreness >= 3.8:
-        advice.append(
-            "🚴 **High Fatigue Detected:** Average soreness is >= 4/5 recently. Swap today's run for **45 mins on the bike** to promote recovery.")
     else:
-        advice.append("🟢 **Green Light:** Fatigue levels are manageable. Proceed with your planned training volume.")
+        advice.append(
+            "🟢 **Physical Status Clear:** No injury keywords detected in your recent notes. Proceed with your scheduled workouts.")
 
     return "\n\n".join(advice)
 
 
-# 5. INTERACTIVE ADVICE BOT ENGINE
+# CONVERSATIONAL ADVICE BOT ENGINE
 def answer_user_query(query: str) -> str:
-    """Answers user queries on pacing, daily distribution, and volume alignment."""
-    df = tools.get_zero_filled_df()
-    target_weekly = tools.calculate_progressive_build()
-
-    # Analyze current week progress
-    if not df.empty:
-        df['Week'] = df['log_date'].dt.to_period('W').dt.start_time
-        current_week_df = df[df['Week'] == df['Week'].max()]
-        logged_miles = current_week_df['distance_miles'].sum()
-        remaining_weekly_miles = max(0.0, target_weekly - logged_miles)
-    else:
-        logged_miles = 0.0
-        remaining_weekly_miles = target_weekly
-
     query_lower = query.lower()
-    target_pace_str = data_store.get_setting("target_time", "3:30:00")
-    paces = tools.calculate_target_paces(target_pace_str)
 
-    if "tomorrow" in query_lower or "pace" in query_lower or "distance" in query_lower:
-        easy_pace = paces["Easy / Recovery Pace"]
-        suggested_tomorrow = round(min(remaining_weekly_miles / 4.0, 8.0), 1) if remaining_weekly_miles > 0 else 4.0
-
+    # 1. Multi-Week Projections
+    if "week" in query_lower and (
+            "how many" in query_lower or "in" in query_lower or "target" in query_lower or "future" in query_lower):
+        import re
+        numbers = re.findall(r'\b\d+\b', query_lower)
+        weeks_ahead = int(numbers[0]) if numbers else 4
+        projected = tools.calculate_periodized_target(weeks_ahead=weeks_ahead)
         return (
-            f"💡 **Custom Workout Recommendation for Tomorrow:**\n\n"
-            f"- **Suggested Distance:** **{suggested_tomorrow} miles**\n"
-            f"- **Target Pace Range:** **{easy_pace}** (Easy / Aerobic Build)\n"
-            f"- **Weekly Mileage Context:** You have logged **{logged_miles:.1f} mi** out of your **{target_weekly} mi** target this week (**{remaining_weekly_miles:.1f} mi remaining**).\n\n"
-            f"*Tip: Keep tomorrow's effort relaxed to save energy for your upcoming quality workout or long run!*"
+            f"📈 **Multi-Week Mileage Projection:**\n\n"
+            f"- **In {weeks_ahead} Weeks:** Your projected target volume is **{projected} miles/week**.\n"
+            f"- **Periodization Logic:** Includes periodized 4-week build cycles, cutback recovery weeks (-15%), and your configured volume cap of **{data_store.get_setting('max_mileage_cap', '50.0')} mi**."
         )
-    else:
+
+    # 2. Recovery Protocols
+    elif "recover" in query_lower or "sore" in query_lower or "stiff" in query_lower:
         return (
-            f"🤖 **Coach Answer:** Based on your target weekly build of **{target_weekly} mi** (Goal Marathon Pace: **{paces['Goal Marathon Pace (MP)']}**), "
-            f"focus on keeping 80% of your total weekly volume at **{paces['Easy / Recovery Pace']}**. "
-            f"You currently have **{remaining_weekly_miles:.1f} miles** left to complete your weekly target."
+            "🧘 **Optimal Recovery Protocol:**\n\n"
+            "1. **30-Min Post-Run Window:** Consume 3:1 or 4:1 carbs-to-protein ratio (e.g., chocolate milk or smoothie).\n"
+            "2. **Hydration & Electrolytes:** 16-24 oz of fluid per pound of sweat lost during quality runs.\n"
+            "3. **Active Recovery:** 20-30 mins light spinning on bike or easy walking to flush metabolic waste.\n"
+            "4. **Mobility:** Foam roll quads, calves, and hamstrings for 10 mins. Avoid deep aggressive stretching on acute strains."
+        )
+
+    # 3. Pacing Questions
+    elif "pace" in query_lower:
+        target_time = data_store.get_setting("target_time", "03:30:00")
+        paces = tools.calculate_target_paces(target_time)
+        return (
+            f"⏱️ **Pace Breakdown for Target Finish ({target_time}):**\n\n"
+            f"- **Goal Marathon Pace:** `{paces['Goal Marathon Pace (MP)']}`\n"
+            f"- **Easy / Recovery Pace:** `{paces['Easy / Recovery Pace']}`\n"
+            f"- **Tempo / Threshold Pace:** `{paces['Tempo / Threshold Pace']}`\n"
+            f"- **Interval Pace:** `{paces['Interval / VO2 Max Pace']}`"
+        )
+
+    # 4. Default Guidance
+    else:
+        curr_target = tools.calculate_periodized_target(weeks_ahead=0)
+        return (
+            f"🏃 **Current Training Context:**\n\n"
+            f"- **This Week's Target:** **{curr_target} mi**\n"
+            f"- **Timeline:** **{calculate_weeks_remaining()} weeks** until marathon date.\n"
+            f"- Ask me specific questions like: *'What will my mileage be in 6 weeks?'*, *'How should I recover after a long run?'*, or *'What is my goal tempo pace?'*"
         )
