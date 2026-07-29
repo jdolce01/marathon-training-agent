@@ -22,12 +22,15 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 # --- TAB 1: DASHBOARD ---
 with tab1:
     st.subheader("Weekly Volume & Periodization")
-    target_mileage = tools.calculate_periodized_target(weeks_ahead=0)
+    target_mileage = int(round(tools.calculate_periodized_target(weeks_ahead=0)))
+    max_long_run = int(round(float(data_store.get_setting("max_long_run", "20.0"))))
 
-    c1, c2 = st.columns(2)
+    c1, c2, c3 = st.columns(3)
     with c1:
         st.metric("Target Volume (This Week)", f"{target_mileage} mi")
     with c2:
+        st.metric("Max Peak Long Run", f"{max_long_run} mi")
+    with c3:
         st.metric("Weeks to Marathon", f"{agent.calculate_weeks_remaining()} Wks Out")
 
     # Shoe Alert Banner
@@ -54,7 +57,7 @@ with tab1:
     pdf_filename = tools.generate_pdf_training_plan()
     with open(pdf_filename, "rb") as pdf_file:
         st.download_button(
-            label="📥 Download Complete Custom PDF Plan",
+            label="📥 Download Complete Custom PDF Plan (With Shoe Replacement Alerts)",
             data=pdf_file,
             file_name="Julia_Marathon_Training_Plan.pdf",
             mime="application/pdf"
@@ -91,13 +94,13 @@ with tab1:
         y_col = 'distance_miles' if mileage_type == "Actual Running Miles" else 'effective_miles'
 
         fig_weekly = px.bar(weekly_df, x='Week', y=y_col, title=f"Weekly Summary ({mileage_type})",
-                            template="plotly_dark", text_auto='.1f')
+                            template="plotly_dark", text_auto='.0f')
         st.plotly_chart(fig_weekly, use_container_width=True)
 
 # --- TAB 2: ADVICE BOT ---
 with tab2:
     st.subheader("💬 Interactive Coach Advice Bot")
-    st.write("Ask specific questions about dates, max mileage specs, fatigue health causes, recovery, or pacing.")
+    st.write("Ask specific questions about dates, max long runs, shoe replacement timing, recovery, or pacing.")
     user_q = st.text_input("Ask your coach:", value="How far should I run on October 12th?")
     if st.button("Ask Bot"):
         st.markdown(agent.answer_user_query(user_q))
@@ -108,7 +111,6 @@ with tab3:
     with st.form("log_form"):
         log_date = st.date_input("Date", value=date.today())
 
-        # Auto fetch weather for Haddonfield, NJ on selected date
         weather_info = tools.fetch_haddonfield_weather(str(log_date))
         st.caption(
             f"🌤️ **Auto-Fetched Weather (Haddonfield, NJ):** {weather_info['temp_f']}°F | {weather_info['humidity_pct']}% Humidity")
@@ -136,7 +138,6 @@ with tab3:
             )
             st.success("Log saved! Real-time Haddonfield weather auto-recorded.")
 
-            # Immediate feedback banner on submission
             pains = tools.analyze_notes_for_pain(notes)
             if pains:
                 st.warning(
@@ -147,7 +148,7 @@ with tab3:
                     for ex in ex_list:
                         st.markdown(f"- {ex}")
 
-# --- TAB 4: HISTORY & EDIT (WITH LIVE DB SYNC) ---
+# --- TAB 4: HISTORY & EDIT ---
 with tab4:
     st.subheader("Edit Historical Logs")
     df = data_store.get_logs_df()
@@ -185,6 +186,8 @@ with tab5:
                                          value=float(data_store.get_setting("baseline_mileage", "30.0")), step=2.0)
         max_cap_input = st.number_input("Max Weekly Mileage Cap (mi/week)",
                                         value=float(data_store.get_setting("max_mileage_cap", "50.0")), step=5.0)
+        max_long_run_input = st.number_input("Max Peak Training Long Run (miles)",
+                                             value=float(data_store.get_setting("max_long_run", "20.0")), step=1.0)
         target_time_input = st.text_input("Target Marathon Time (HH:MM:SS)",
                                           value=data_store.get_setting("target_time", "03:30:00"))
 
@@ -243,6 +246,7 @@ with tab5:
         data_store.set_setting("marathon_date", str(new_m_date))
         data_store.set_setting("baseline_mileage", str(baseline_input))
         data_store.set_setting("max_mileage_cap", str(max_cap_input))
+        data_store.set_setting("max_long_run", str(max_long_run_input))
         data_store.set_setting("target_time", target_time_input)
         data_store.set_setting("training_framework", framework_input)
         data_store.set_setting("course_elevation", elevation_input)
@@ -251,7 +255,7 @@ with tab5:
         data_store.set_setting("active_shoe_name", shoe_name_input)
         data_store.set_setting("shoe_initial_miles", str(shoe_initial_input))
         data_store.set_setting("shoe_max_limit", str(shoe_limit_input))
-        st.success("Logistics saved! PDF schedule updated.")
+        st.success("Logistics saved! Integer training plan and PDF schedule updated.")
 
     st.markdown("---")
     st.subheader("🎯 Target Paces & Heart Rate Zones")

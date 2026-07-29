@@ -4,7 +4,7 @@ import re
 from datetime import datetime, timedelta
 import data_store
 
-# REPORTLAB IMPORTS (Pure Python PDF Generation - No pango/cairo required)
+# REPORTLAB IMPORTS (Pure Python PDF Engine)
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
@@ -31,19 +31,29 @@ def fetch_haddonfield_weather(log_date_str: str) -> dict:
         hums = daily.get("relative_humidity_2m_mean", [55.0])
 
         return {
-            "temp_f": round(temps[0]) if temps else 72.0,
-            "humidity_pct": round(hums[0]) if hums else 55.0
+            "temp_f": round(temps[0]) if temps else 72,
+            "humidity_pct": round(hums[0]) if hums else 55
         }
     except Exception:
-        return {"temp_f": 70.0, "humidity_pct": 50.0}
+        return {"temp_f": 70, "humidity_pct": 50}
 
 
-# 2. PURE-PYTHON PDF TRAINING PLAN GENERATOR (ReportLab)
+# 2. PDF TRAINING PLAN GENERATOR (INTEGER DISTANCES & SHOE ALERTS)
 def generate_pdf_training_plan(output_pdf_path: str = "Julia_Marathon_Training_Plan.pdf") -> str:
     marathon_date_str = data_store.get_setting("marathon_date", "2026-11-01")
     target_time_str = data_store.get_setting("target_time", "03:30:00")
-    max_cap = float(data_store.get_setting("max_mileage_cap", "50.0"))
+    max_cap = int(round(float(data_store.get_setting("max_mileage_cap", "50.0"))))
+    max_long_run_cap = int(round(float(data_store.get_setting("max_long_run", "20.0"))))
     framework = data_store.get_setting("training_framework", "Pfitzinger (Pfitz)")
+
+    shoe_name = data_store.get_setting("active_shoe_name", "Nike Pegasus 40")
+    shoe_initial = float(data_store.get_setting("shoe_initial_miles", "0.0"))
+    shoe_limit = float(data_store.get_setting("shoe_max_limit", "350.0"))
+
+    df = data_store.get_logs_df()
+    current_logged_miles = df['distance_miles'].sum() if not df.empty and 'distance_miles' in df else 0.0
+    cum_shoe_miles = shoe_initial + current_logged_miles
+    shoe_alert_triggered = False
 
     m_date = datetime.strptime(marathon_date_str, "%Y-%m-%d").date()
     today_dt = datetime.now().date()
@@ -58,24 +68,23 @@ def generate_pdf_training_plan(output_pdf_path: str = "Julia_Marathon_Training_P
                                  textColor=colors.HexColor('#0284c7'), spaceAfter=4)
     sub_style = ParagraphStyle('SubStyle', parent=styles['Normal'], fontName='Helvetica', fontSize=10,
                                textColor=colors.HexColor('#475569'), spaceAfter=12)
-    cell_style = ParagraphStyle('Cell', fontName='Helvetica', fontSize=8.5, textColor=colors.HexColor('#1e293b'))
-    cell_bold = ParagraphStyle('CellB', fontName='Helvetica-Bold', fontSize=8.5, textColor=colors.HexColor('#0f172a'))
-    header_cell = ParagraphStyle('HCell', fontName='Helvetica-Bold', fontSize=8.5, textColor=colors.white)
+    cell_style = ParagraphStyle('Cell', fontName='Helvetica', fontSize=8, textColor=colors.HexColor('#1e293b'))
+    cell_bold = ParagraphStyle('CellB', fontName='Helvetica-Bold', fontSize=8, textColor=colors.HexColor('#0f172a'))
+    header_cell = ParagraphStyle('HCell', fontName='Helvetica-Bold', fontSize=8, textColor=colors.white)
+    shoe_warn_style = ParagraphStyle('ShoeWarn', fontName='Helvetica-Bold', fontSize=8,
+                                     textColor=colors.HexColor('#dc2626'))
 
     elements = []
-
-    # Header Section
     elements.append(Paragraph("🏃 Custom Marathon Training Schedule", title_style))
     elements.append(
         Paragraph(f"Prepared for Julia Dolce | Location: Haddonfield, NJ | Target Race Date: {marathon_date_str}",
                   sub_style))
 
-    # Metadata Box Table
     meta_data = [
         [
             Paragraph("<b>Framework:</b> " + framework, cell_style),
             Paragraph("<b>Max Cap:</b> " + str(max_cap) + " mi/wk", cell_style),
-            Paragraph("<b>Target Time:</b> " + target_time_str, cell_style),
+            Paragraph("<b>Max Long Run:</b> " + str(max_long_run_cap) + " mi", cell_style),
             Paragraph("<b>Goal MP:</b> " + paces['Goal Marathon Pace (MP)'], cell_style)
         ]
     ]
@@ -87,21 +96,20 @@ def generate_pdf_training_plan(output_pdf_path: str = "Julia_Marathon_Training_P
         ('PADDING', (0, 0), (-1, -1), 6),
     ]))
     elements.append(meta_table)
-    elements.append(Spacer(1, 12))
+    elements.append(Spacer(1, 10))
 
-    # Weekly Schedule Table
     table_data = [[
         Paragraph("Wk", header_cell),
         Paragraph("Dates", header_cell),
         Paragraph("Phase", header_cell),
         Paragraph("Target", header_cell),
         Paragraph("Mid-Week Run", header_cell),
-        Paragraph("Quality Workout", header_cell),
-        Paragraph("Weekend Long Run", header_cell)
+        Paragraph("Long Run", header_cell),
+        Paragraph("Gear & Shoe Alert", header_cell)
     ]]
 
     for w in range(1, weeks_left + 1):
-        wk_target = calculate_periodized_target(weeks_ahead=w - 1)
+        wk_target = int(round(calculate_periodized_target(weeks_ahead=w - 1)))
         wk_start = today_dt + timedelta(weeks=w - 1)
         wk_end = wk_start + timedelta(days=6)
         date_str = f"{wk_start.strftime('%b %d')} - {wk_end.strftime('%b %d')}"
@@ -109,25 +117,28 @@ def generate_pdf_training_plan(output_pdf_path: str = "Julia_Marathon_Training_P
         rev_index = weeks_left - w + 1
         if rev_index == 1:
             phase_tag = "Race Week"
-        elif rev_index <= 3:
-            phase_tag = f"Taper Wk {4 - rev_index}"
+            long_run = int(round(min(max_long_run_cap * 0.40, 8)))
+        elif rev_index == 2:
+            phase_tag = "Taper Wk 2"
+            long_run = int(round(min(max_long_run_cap * 0.60, 12)))
+        elif rev_index == 3:
+            phase_tag = "Taper Wk 1"
+            long_run = int(round(min(max_long_run_cap * 0.75, 15)))
         elif w % 4 == 0:
             phase_tag = "Cutback Wk"
+            long_run = int(round(max_long_run_cap * 0.65))
         else:
             phase_tag = f"Build Step {(w % 4)}"
+            pct_build = min(1.0, (w / (weeks_left - 3)))
+            long_run = int(round(min(max_long_run_cap, max(10, max_long_run_cap * pct_build))))
 
-        if framework == "Hanson Method":
-            long_run = round(min(wk_target * 0.30, 16.0), 1)
-            mid_long = round(min(wk_target * 0.18, 8.0), 1)
-            tempo = round(max(3.0, wk_target * 0.15), 1)
-        elif framework == "Jack Daniels (Formula)":
-            long_run = round(min(wk_target * 0.33, 20.0), 1)
-            mid_long = round(min(wk_target * 0.20, 10.0), 1)
-            tempo = round(max(3.0, wk_target * 0.12), 1)
-        else:
-            long_run = round(min(wk_target * 0.35, 20.0), 1)
-            mid_long = round(min(wk_target * 0.22, 12.0), 1)
-            tempo = round(max(3.0, wk_target * 0.12), 1)
+        mid_long = int(round(min(wk_target * 0.22, 12)))
+
+        cum_shoe_miles += wk_target
+        shoe_note = Paragraph("OK", cell_style)
+        if cum_shoe_miles >= shoe_limit and not shoe_alert_triggered:
+            shoe_note = Paragraph(f"🚨 <b>Replace Shoes</b> ({int(round(cum_shoe_miles))} mi)", shoe_warn_style)
+            shoe_alert_triggered = True
 
         table_data.append([
             Paragraph(f"Wk {w}", cell_style),
@@ -135,11 +146,11 @@ def generate_pdf_training_plan(output_pdf_path: str = "Julia_Marathon_Training_P
             Paragraph(phase_tag, cell_bold),
             Paragraph(f"{wk_target} mi", cell_bold),
             Paragraph(f"{mid_long} mi Aerobic", cell_style),
-            Paragraph(f"{tempo} mi LT/MP", cell_style),
-            Paragraph(f"{long_run} mi Long Run", cell_style)
+            Paragraph(f"<b>{long_run} mi</b>", cell_style),
+            shoe_note
         ])
 
-    plan_table = Table(table_data, colWidths=[35, 95, 75, 60, 95, 90, 100])
+    plan_table = Table(table_data, colWidths=[35, 90, 70, 55, 90, 80, 130])
     plan_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0284c7')),
         ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
@@ -154,7 +165,49 @@ def generate_pdf_training_plan(output_pdf_path: str = "Julia_Marathon_Training_P
     return output_pdf_path
 
 
-# 3. FATIGUE & HEALTH DIAGNOSTICS FOR NOTES
+# 3. WORKOUT GENERATOR WITH INTEGER DISTANCES
+def get_framework_workouts(weekly_target: float, framework: str, elevation: str) -> list:
+    hill_note = " (Include 150-200ft elevation gain for hilly course prep)" if "Hilly" in elevation else ""
+    max_long_run_cap = int(round(float(data_store.get_setting("max_long_run", "20.0"))))
+
+    long_run = int(round(min(weekly_target * 0.38, max_long_run_cap)))
+
+    if framework == "Pfitzinger (Pfitz)":
+        mid_long = int(round(min(weekly_target * 0.22, 12)))
+        tempo = int(round(max(3, weekly_target * 0.12)))
+        return [
+            {"name": "Pfitz Mid-Week Medium-Long Run", "type": "Aerobic Build",
+             "desc": f"{mid_long} miles @ Easy/Aerobic pace.{hill_note}"},
+            {"name": "Pfitz Lactate Threshold Run", "type": "Threshold",
+             "desc": f"2 mi warmup + {tempo} mi @ LT Pace + 1 mi cooldown."},
+            {"name": "Pfitz Long Run", "type": "Long Run",
+             "desc": f"{long_run} miles steady effort, building to marathon pace in final 4 mi (Capped at {max_long_run_cap} mi).{hill_note}"}
+        ]
+    elif framework == "Hanson Method":
+        hanson_cap = min(16, max_long_run_cap)
+        long_run = int(round(min(weekly_target * 0.30, hanson_cap)))
+        mp_run = int(round(min(weekly_target * 0.20, 10)))
+        return [
+            {"name": "Hanson Marathon Pace Run", "type": "Quality",
+             "desc": f"2 mi warmup + {mp_run} mi @ Goal MP + 1 mi cooldown."},
+            {"name": "Hanson Strength Intervals", "type": "Threshold",
+             "desc": "3 x 2 miles @ 10s faster than MP with 800m recovery jog."},
+            {"name": "Hanson Cumulative Fatigue Long Run", "type": "Long Run",
+             "desc": f"{long_run} miles max on tired legs.{hill_note}"}
+        ]
+    else:  # Jack Daniels
+        tempo = int(round(max(3, weekly_target * 0.10)))
+        return [
+            {"name": "Daniels Threshold Cruise Intervals", "type": "Threshold",
+             "desc": f"4 x 1 mile @ Threshold Pace with 1 min rest."},
+            {"name": "Daniels VO2 Max Intervals", "type": "Speed",
+             "desc": "5 x 1000m @ I-Pace with 3 min jog recovery."},
+            {"name": "Daniels Quality Long Run (2Q)", "type": "Long Run",
+             "desc": f"{long_run} miles total: Easy + Threshold + Easy.{hill_note}"}
+        ]
+
+
+# 4. FATIGUE DIAGNOSTICS & OTHER HELPER FUNCTIONS
 def analyze_notes_for_fatigue(text: str) -> list:
     if not text: return []
     text_lower = text.lower()
@@ -174,7 +227,6 @@ def get_fatigue_health_diagnostics() -> str:
     )
 
 
-# 4. HEART RATE ZONES (Karvonen Method)
 def calculate_hr_zones(max_hr: int, resting_hr: int) -> dict:
     hrr = max_hr - resting_hr
     return {
@@ -184,46 +236,6 @@ def calculate_hr_zones(max_hr: int, resting_hr: int) -> dict:
         "Zone 4 (Threshold / Tempo)": f"{round(resting_hr + hrr * 0.80)} - {round(resting_hr + hrr * 0.90)} bpm",
         "Zone 5 (VO2 Max / Intervals)": f"{round(resting_hr + hrr * 0.90)} - {max_hr} bpm"
     }
-
-
-# 5. FRAMEWORK WORKOUT GENERATOR
-def get_framework_workouts(weekly_target: float, framework: str, elevation: str) -> list:
-    hill_note = " (Include 150-200ft elevation gain for hilly course prep)" if "Hilly" in elevation else ""
-
-    if framework == "Pfitzinger (Pfitz)":
-        long_run = round(min(weekly_target * 0.35, 20.0), 1)
-        mid_long = round(min(weekly_target * 0.22, 12.0), 1)
-        tempo = round(max(3.0, weekly_target * 0.12), 1)
-        return [
-            {"name": "Pfitz Mid-Week Medium-Long Run", "type": "Aerobic Build",
-             "desc": f"{mid_long} miles @ Easy/Aerobic pace.{hill_note}"},
-            {"name": "Pfitz Lactate Threshold Run", "type": "Threshold",
-             "desc": f"2 mi warmup + {tempo} mi @ LT Pace + 1.5 mi cooldown."},
-            {"name": "Pfitz Long Run", "type": "Long Run",
-             "desc": f"{long_run} miles steady effort, building to marathon pace in final 4 mi.{hill_note}"}
-        ]
-    elif framework == "Hanson Method":
-        long_run = round(min(weekly_target * 0.30, 16.0), 1)
-        mp_run = round(min(weekly_target * 0.20, 10.0), 1)
-        return [
-            {"name": "Hanson Marathon Pace Run", "type": "Quality",
-             "desc": f"2 mi warmup + {mp_run} mi @ Goal MP + 1 mi cooldown."},
-            {"name": "Hanson Strength Intervals", "type": "Threshold",
-             "desc": "3 x 2 miles @ 10s faster than MP with 800m recovery jog."},
-            {"name": "Hanson Cumulative Fatigue Long Run", "type": "Long Run",
-             "desc": f"{long_run} miles max on tired legs.{hill_note}"}
-        ]
-    else:
-        long_run = round(min(weekly_target * 0.33, 20.0), 1)
-        tempo = round(max(3.0, weekly_target * 0.10), 1)
-        return [
-            {"name": "Daniels Threshold Cruise Intervals", "type": "Threshold",
-             "desc": f"4 x 1 mile @ Threshold Pace with 1 min rest."},
-            {"name": "Daniels VO2 Max Intervals", "type": "Speed",
-             "desc": "5 x 1000m @ I-Pace with 3 min jog recovery."},
-            {"name": "Daniels Quality Long Run (2Q)", "type": "Long Run",
-             "desc": f"{long_run} miles total: Easy + Threshold + Easy.{hill_note}"}
-        ]
 
 
 def get_detailed_weather_forecast(latitude: float = HADDONFIELD_LAT, longitude: float = HADDONFIELD_LON) -> dict:
@@ -278,11 +290,11 @@ def calculate_periodized_target(weeks_ahead: int = 0) -> float:
     target_week_index = total_weeks_remaining - weeks_ahead
 
     if target_week_index <= 1:
-        return round(max_cap * 0.40, 1)
+        return int(round(max_cap * 0.40))
     elif target_week_index == 2:
-        return round(max_cap * 0.60, 1)
+        return int(round(max_cap * 0.60))
     elif target_week_index == 3:
-        return round(max_cap * 0.75, 1)
+        return int(round(max_cap * 0.75))
 
     df = data_store.get_logs_df()
     current_vol = baseline
@@ -298,7 +310,7 @@ def calculate_periodized_target(weeks_ahead: int = 0) -> float:
         else:
             simulated_vol = min(simulated_vol * 1.08, max_cap)
 
-    return round(min(simulated_vol, max_cap), 1)
+    return int(round(min(simulated_vol, max_cap)))
 
 
 def get_zero_filled_df():
@@ -307,7 +319,6 @@ def get_zero_filled_df():
     df['log_date'] = pd.to_datetime(df['log_date'])
     full_idx = pd.date_range(start=df['log_date'].min(),
                              end=max(df['log_date'].max(), pd.to_datetime(datetime.now().date())), freq='D')
-    df = df.set_index('log_date').reindex(full_idx)
     df.index.name = 'log_date'
     df['distance_miles'] = df['distance_miles'].fillna(0.0)
     df['cross_train_mins'] = df['cross_train_mins'].fillna(0)
@@ -348,7 +359,7 @@ def get_shoe_mileage_status() -> dict:
 
     status_alert = None
     if total_miles >= max_limit:
-        status_alert = f"🚨 **Shoe Replacement Alert ({shoe_name}):** You have logged **{total_miles} miles** on this pair (Max limit: {max_limit} mi). Replace to avoid joint strain."
+        status_alert = f"🚨 **Shoe Replacement Alert ({shoe_name}):** You have logged **{total_miles} miles** on this pair (Max limit: {int(max_limit)} mi). Replace to avoid joint strain."
     elif total_miles >= max_limit * 0.85:
         status_alert = f"👟 **Shoe Wear Warning ({shoe_name}):** You are at **{total_miles} miles** ({pct_used}% of life)."
 
